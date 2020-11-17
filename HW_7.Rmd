@@ -1,0 +1,272 @@
+---
+author: "Erik Carlson, Emily Vasquez, Emmanuel Mendez, Joe Correa"
+title: "Lab 7"
+font-family: 'Corbel'
+output: github_document
+---
+
+  
+## Econ B2000, Econometrics
+
+
+~ In this HW assignment we use several models to try and predict if a person from our selected subset has health insurance. We use logit, Random Forest, Support Vector Machines, and Elastic Net.
+
+
+```{r, message=FALSE}
+load("NHIS_2014.RData")
+```
+~ The code below tells R to include the NA values of the money earned last year variable, when running regressions.
+```{r, message=FALSE}
+data_use1$earn_lastyr <- as.factor(data_use1$ERNYR_P)
+levels(data_use1$earn_lastyr) <- c("0","$01-$4999","$5000-$9999","$10000-$14999","$15000-$19999","$20000-$24999","$25000-$34999","$35000-$44999","$45000-$54999","$55000-$64999","$65000-$74999","$75000 and over",NA,NA,NA)
+```
+
+~ Our selected subgroup is Adults between ages 25 up to and including 55. We wanted to measure if a persons health status has an impact on whether or not that person has health insurance. We chose people with at least good health for our subset.
+
+```{r, message=FALSE}
+pick_use2 <- (data_use1$AGE_P >25) & (data_use1$AGE_P <= 55) & ((data_use1$person_healthstatus=="Excellent")|(data_use1$person_healthstatus=="Very good")|(data_use1$person_healthstatus=="Good"))
+data_use2 <- subset(data_use1, pick_use2)
+data_use2$person_healthstatus <- droplevels(data_use2$person_healthstatus)
+
+```
+~ We also thought it would be interesting to test the impact of how much a person spends on medical in a given year, and whether that has any impact on that person having health insurance. We predict that someone who spends more in a given year on medical is more likely to have health insurance( higher probability). The logit model below shows that the more you spent on medical the more likely you are to have health insurance. This could be due to that if you dont have health insurance to cover some expense you dont go to the doctor. Keep in mind we are using at least good health in our subset. Also 
+
+```{r, message=FALSE}
+model_logit1 <- glm(NOTCOV ~ AGE_P + I(AGE_P^2) + female + AfAm + Asian + RaceOther  
+                    + Hispanic + educ_hs + educ_smcoll + educ_as + educ_bach + educ_adv 
+                    + married + widowed + divorc_sep + veteran_stat + REGION + region_born +sptn_medical,
+                    family = binomial, data = data_use2)
+summary(model_logit1)
+```
+~ The graph below shows the coefficients for each explanatory variable. The data shows that someone born abroad is less likely to have health insurance. This could be due to things such as immigration status and/or income levels. Higher education levels also show a higher likelihood to have health insurance. Our subset did not include the people with bad health statuses so that may allow for different interpretations. People with higher incomes also have the ability to buy healthier foods, which are generally more expensive. 
+
+```{r, message=FALSE}
+library(coefplot)
+library(ggplot2)
+coefplot(model_logit1, innerCI=2, outerCI=0, intercept = FALSE, title = "Logit Model", color = "red", lab = "Explantory Variables")
+```
+
+```{r, message=FALSE}
+data_use1_orig<-data_use1
+rm(data_use1)
+data_use1<-data_use2
+```
+~The code below tells R to include the NA values of the spent on medical variable for the previous year, when running the regressions.
+
+```{r, message=FALSE}
+levels(data_use1$sptn_medical)<-c("zero", "under 500" ,"500-1999" , "2000-2999" ,"3000-4999" ,"5000+"  ,  "refused","Is NA")
+data_use1$sptn_medical[(is.na(data_use1$sptn_medical)==TRUE)]<-"Is NA"
+
+```
+~ The code below prints the output string text and factors the non dummy variables and changes them to dummy variables.
+
+```{r, message=FALSE}
+d_region <- data.frame(model.matrix(~ data_use1$REGION))
+d_region_born <- data.frame(model.matrix(~ factor(data_use1$region_born)))  # snips any with zero in the subgroup
+d_sptn_medical <- data.frame(model.matrix(~ factor(data_use1$sptn_medical)))
+dat_for_analysis_sub <- data.frame(
+  data_use1$NOTCOV,
+  data_use1$AGE_P,
+  data_use1$female,
+  data_use1$AfAm,
+  data_use1$Asian,
+  data_use1$RaceOther,
+  data_use1$Hispanic,
+  data_use1$educ_hs,
+  data_use1$educ_smcoll,
+  data_use1$educ_as,
+  data_use1$educ_bach,
+  data_use1$educ_adv,
+  data_use1$married,
+  data_use1$widowed,
+  data_use1$divorc_sep,
+  d_region[,2:4],
+  d_region_born[,2:12], # need [] since model.matrix includes intercept term
+  d_sptn_medical[,2:8])
+
+names(dat_for_analysis_sub) <- c("NOTCOV",
+                                 "Age",
+                                 "female",
+                                 "AfAm",
+                                 "Asian",
+                                 "RaceOther",
+                                 "Hispanic",
+                                 "educ_hs",
+                                 "educ_smcoll",
+                                 "educ_as",
+                                 "educ_bach",
+                                 "educ_adv",
+                                 "married",
+                                 "widowed",
+                                 "divorc_sep",
+                                 "Region.Midwest",
+                                 "Region.South",
+                                 "Region.West",
+                                 "born.Mex.CentAm.Carib",
+                                 "born.S.Am",
+                                 "born.Eur",
+                                 "born.f.USSR",
+                                 "born.Africa",
+                                 "born.MidE",
+                                 "born.India.subc",
+                                 "born.Asia",
+                                 "born.SE.Asia",
+                                 "born.elsewhere",
+                                 "born.unknown",
+                                 "sptn.under_500",
+                                 "sptn.500_1999",
+                                 "sptn.2000_2999",
+                                 "sptn.3000_4999",
+                                 "sptn.5000_gr",
+                                 "sptn.refused",
+                                 "sptn.Is_NA")
+
+```
+~ This code creates a common data object that is standardized and splits it into the training and test data. There are 34,218 in the training data and 6032 in the test data. We added in the amounts spent on medical including the people who refused to answer as well as the NA values.
+
+```{r, message=FALSE}
+require("standardize")
+set.seed(654321)
+NN <- length(dat_for_analysis_sub$NOTCOV)
+#restrict_1 <- as.logical(round(runif(NN,min=0,max=0.6))) # use fraction as training data
+restrict_1 <- (runif(NN) < 0.15)
+summary(restrict_1)
+dat_train <- subset(dat_for_analysis_sub, restrict_1)
+dat_test <- subset(dat_for_analysis_sub, !restrict_1)
+sobj <- standardize(NOTCOV ~ Age + female + AfAm + Asian + RaceOther + Hispanic + 
+                      educ_hs + educ_smcoll + educ_as + educ_bach + educ_adv + 
+                      married + widowed + divorc_sep + 
+                      Region.Midwest + Region.South + Region.West + 
+                      born.Mex.CentAm.Carib + born.S.Am + born.Eur + born.f.USSR + 
+                      born.Africa + born.MidE + born.India.subc + born.Asia + 
+                      born.SE.Asia + born.elsewhere + born.unknown + sptn.under_500+
+                      sptn.500_1999 + sptn.2000_2999 + sptn.3000_4999 + sptn.5000_gr +sptn.refused + sptn.Is_NA , dat_train, family = binomial)
+s_dat_test <- predict(sobj, dat_test)
+
+```
+~ The code below runs the linear probability model on our subset using the explanatory variables we added. The logit model predicts that 82% of our set has health insurance. The actual correct number is 81.25% which is not too far off. There are 1256 people who the model correctly predicted do not have health insurance. We have 840 false positives those who the model says are not covered but are indeed covered. 5159 false negatives are those who the model says are covered but are actually not covered. The 26963 are those who are correctly predicted to have health insurance.
+
+```{r, echo=FALSE}
+
+model_lpm1 <- lm(sobj$formula, data = sobj$data)
+summary(model_lpm1)
+pred_vals_lpm <- predict(model_lpm1, s_dat_test)
+pred_model_lpm1 <- (pred_vals_lpm > 0.5)
+pred_lm<-table(pred = pred_model_lpm1, true = dat_test$NOTCOV)
+print(pred_lm)
+(pred_lm[1,1]+pred_lm[2,2])/sum(pred_lm)
+# logit 
+model_logit1 <- glm(sobj$formula, family = binomial, data = sobj$data)
+summary(model_logit1)
+pred_vals <- predict(model_logit1, s_dat_test, type = "response")
+pred_model_logit1 <- (pred_vals > 0.5)
+pred_table<-table(pred = pred_model_logit1, true = dat_test$NOTCOV)
+print(pred_table)
+(pred_table[1,1]+pred_table[2,2])/sum(pred_table)
+
+#0.8125 have health insurance
+
+```
+~ The code below runs the random forest model on our subset using the explanatory variables we added. The random forest model predicts that 82.73% of our set has health insurance. The actual correct number is 81.25% which is not too far off. There are 1091 people who the model correctly predicted do not have health insurance. We have 583 false positives those who the model says are not covered but are indeed covered. 5324 false negatives are those who the model says are covered but are actually not covered. The 27220 are those who are correctly predicted to have health insurance. The graph below has the mexican and central american region as the variable with the highest degree of accuracy when predicting whether or not a person has health insurance. Age is a good predictor in this model at reducing classification errors, likewise with education levels.
+
+```{r, message=FALSE}
+require('randomForest')
+set.seed(54321)
+model_randFor <- randomForest(as.factor(NOTCOV) ~ ., data = sobj$data, importance=TRUE, proximity=TRUE)
+print(model_randFor)
+round(importance(model_randFor),2)
+varImpPlot(model_randFor)
+# look at confusion matrix for this too
+pred_model1 <- predict(model_randFor,  s_dat_test)
+pred_rf<-table(pred = pred_model1, true = dat_test$NOTCOV)
+print(pred_rf)
+(pred_rf[1,1]+pred_rf[2,2])/sum(pred_rf)
+```
+
+```{r, eval=FALSE}
+require(e1071)
+tuned_parameters <- tune.svm(as.factor(NOTCOV) ~ ., data = sobj$data, gamma = 10^(-3:0), cost = 10^(-2:1)) 
+summary(tuned_parameters)
+```
+The code below runs the support vector machines probability model with tuned parameters on our subset using the explanatory variables we added. The support vector machines model predicts that 82.59% of our set has health insurance. The actual correct number is 81.25% which is not too far off. There are 1061 people who the model correctly predicted do not have health insurance. We have 603 false positives those who the model says are not covered but are indeed covered. 5354 false negatives are those who the model says are covered but are actually not covered. The 27200 are those who are correctly predicted to have health insurance.
+
+```{r, message=FALSE}
+#This is with tuned parameters and the tuned parameters.rds file is for the support vector machine method. It takes less time and spits out a better result.
+require(e1071)
+tuned_parameters <- readRDS("tuned_parameters.rds")
+best.linear = tuned_parameters$best.model
+tune.test = predict(best.linear, s_dat_test)
+pred_tuned<-table(pred=tune.test, true=dat_test$NOTCOV)
+pred_tuned
+(pred_tuned[1,1]+pred_tuned[2,2])/sum(pred_tuned)
+```
+The code below runs the support vector machines probability model without tuned parameters on our subset using the explanatory variables we added. The support vector machines model predicts that 80.22% of our set has health insurance. The actual correct number is 81.25% which is not too far off. There are 1703 people who the model correctly predicted do not have health insurance. We have 2054 false positives those who the model says are not covered but are indeed covered. 4712 false negatives are those who the model says are covered but are actually not covered. The 25749 are those who are correctly predicted to have health insurance.
+
+```{r, message=FALSE}
+#Without tuned parameters
+
+svm.model <- svm(as.factor(NOTCOV) ~ ., data = sobj$data, cost = 10, gamma = 0.1)
+svm.pred <- predict(svm.model, s_dat_test)
+pred_svm<-table(pred = svm.pred, true = dat_test$NOTCOV)
+pred_svm
+(pred_svm[1,1]+pred_svm[2,2])/sum(pred_svm)
+```
+The code below runs the elastic net probability model on our subset using the explanatory variables we added. The elastic net model predicts that 65.46% of our set has health insurance. The actual correct number is 81.25% so this model has the lowest accuracy for predicting our subset. There are 4707 people who the model correctly predicted do not have health insurance. We have 10108 false positives those who the model says are not covered but are indeed covered. 1708 false negatives are those who the model says are covered but are actually not covered. The 17695 are those who are correctly predicted to to have health insurance. The graph below shows the explanatory variables graphed with their coefficients and lasso L1 norm values. The 2 that have the biggest predicting in terms of accuracy are educ adv and the region mexico and central america and carribean birthplaces.
+
+```{r, message=FALSE}
+# Elastic Net
+require(glmnet)
+model1_elasticnet <-  glmnet(as.matrix(sobj$data[,-1]),sobj$data$NOTCOV) 
+# default is alpha = 1, lasso
+
+par(mar=c(4.5,4.5,1,4))
+plot(model1_elasticnet)
+vnat=coef(model1_elasticnet)
+vnat=vnat[-1,ncol(vnat)] # remove the intercept, and get the coefficients at the end of the path
+axis(4, at=vnat,line=-.5,label=names(sobj$data[,-1]),las=1,tick=FALSE, cex.axis=0.5) 
+
+plot(model1_elasticnet, xvar = "lambda")
+plot(model1_elasticnet, xvar = "dev", label = TRUE)
+print(model1_elasticnet)
+
+cvmodel1_elasticnet = cv.glmnet(data.matrix(sobj$data[,-1]),data.matrix(sobj$data$NOTCOV)) 
+cvmodel1_elasticnet$lambda.min
+log(cvmodel1_elasticnet$lambda.min)
+coef(cvmodel1_elasticnet, s = "lambda.min")
+
+pred1_elasnet <- predict(model1_elasticnet, newx = data.matrix(s_dat_test), s = cvmodel1_elasticnet$lambda.min)
+pred_model1_elasnet <- (pred1_elasnet < mean(pred1_elasnet)) 
+pred_en<-table(pred = pred_model1_elasnet, true = dat_test$NOTCOV)
+pred_en
+(pred_en[1,1]+pred_en[2,2])/sum(pred_en)
+
+model2_elasticnet <-  glmnet(as.matrix(sobj$data[,-1]),sobj$data$NOTCOV, alpha = 0) 
+# or try different alpha values to see if you can improve
+```
+We removed some of the explanatory variables and ran the random forest regression again to see if there is a stronger correlation with ceratin explanatory variables.
+
+```{r, message=FALSE}
+require("standardize")
+set.seed(654321)
+NNN <- length(dat_for_analysis_sub$NOTCOV)
+restrict_2 <- (runif(NNN) < 0.15)
+summary(restrict_2)
+dat_train2 <- subset(dat_for_analysis_sub, restrict_2)
+dat_test2 <- subset(dat_for_analysis_sub, !restrict_2)
+sobj2 <- standardize(NOTCOV ~ Age + female + Region.Midwest + Region.South + Region.West + born.Mex.CentAm.Carib + born.S.Am + born.Eur + born.f.USSR + born.Africa + born.MidE + born.India.subc + born.Asia + born.SE.Asia + born.elsewhere + born.unknown, dat_train, family = binomial)
+s_dat_test2 <- predict(sobj2, dat_test2)
+```
+
+```{r, message=FALSE}
+require('randomForest')
+set.seed(54321)
+model_randFor2 <- randomForest(as.factor(NOTCOV) ~ ., data = sobj2$data, importance=TRUE, proximity=TRUE)
+print(model_randFor2)
+round(importance(model_randFor2),2)
+varImpPlot(model_randFor2)
+pred_model2 <- predict(model_randFor2, s_dat_test2)
+pred_rf<-table(pred = pred_model2, true = dat_test2$NOTCOV)
+print(pred_rf)
+(pred_rf[1,1]+pred_rf[2,2])/sum(pred_rf)
+```
+We tried to understand whether a person has health insurance through the lens of age, being a female,  race, education martial status, region born and how much is spent on medical insurance.  Our subset only includes those with good health and beyond.We previously used the technique of linear probability model with logit, which is able to successfully predict whether or not a person is covered with about 82 percent accuracy. We analyze these variables through the lens of Random Forest which is also  able to successfully predict whether or not a person is covered with about 82 percent accuracy. With an average of 82 percent accuracy for the previous models we also see an average truly false ratio to false negative  ratio of 5:1 and a positive to false positive ratio of .5:1 .With Support Vector machine the accuracy is drops to about 80 percent . Lastly in the Elastic Net model we see a larger drop in accuracy to only about 65 percent. However we see a decrease in the number of both false and true positives we see a 10:1 ratio of truly false to false negative and about 2:1 ratio of positives to false positives. The explanatory variable that stood out the most out to us was the where you were born, specifically being Hispanic born in Mexico/Central or  America/Caribbean were strong predictors of this.
